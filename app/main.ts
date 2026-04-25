@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import fs from "fs/promises";
 
 async function main() {
   const [, , flag, prompt] = process.argv;
@@ -21,6 +22,7 @@ async function main() {
   const response = await client.chat.completions.create({
     model: "anthropic/claude-haiku-4.5",
     messages: [{ role: "user", content: prompt }],
+
     tools: [
       {
         type: "function",
@@ -51,6 +53,15 @@ async function main() {
 
   // TODO: Uncomment the lines below to pass the first stage
   console.log(response.choices[0].message.content);
+
+  if (response?.choices[0]?.message?.tool_calls) {
+    const toolCalls = response.choices[0].message.tool_calls[0];
+    if (toolCalls.function.name === "Read") {
+      const file_path = JSON.parse(toolCalls.function.arguments).file_path;
+      const fileContents = await fs.readFile(file_path, "utf8");
+      console.log(fileContents);
+    }
+  }
 }
 
 main();
