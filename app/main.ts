@@ -18,50 +18,61 @@ async function main() {
     apiKey: apiKey,
     baseURL: baseURL,
   });
-
-  const response = await client.chat.completions.create({
-    model: "anthropic/claude-haiku-4.5",
-    messages: [{ role: "user", content: prompt }],
-
-    tools: [
-      {
-        type: "function",
-        function: {
-          name: "Read",
-          description: "Read and return the contents of a file",
-          parameters: {
-            type: "object",
-            properties: {
-              file_path: {
-                type: "string",
-                description: "The path to the file to read",
+  const messages = [{ role: "user", content: prompt }];
+  while (true) {
+    const response = await client.chat.completions.create({
+      model: "anthropic/claude-haiku-4.5",
+      messages: messages,
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "Read",
+            description: "Read and return the contents of a file",
+            parameters: {
+              type: "object",
+              properties: {
+                file_path: {
+                  type: "string",
+                  description: "The path to the file to read",
+                },
               },
+              required: ["file_path"],
             },
-            required: ["file_path"],
           },
         },
-      },
-    ],
-  });
-
-  if (!response.choices || response.choices.length === 0) {
-    throw new Error("no choices in response");
-  }
-  if (response?.choices[0]?.message?.tool_calls) {
-    const toolCalls = response.choices[0].message.tool_calls[0];
-    if (toolCalls.function.name === "Read") {
-      const file_path = JSON.parse(toolCalls.function.arguments).file_path;
-      const fileContents = await fs.readFile(file_path, "utf8");
-      console.log(fileContents);
+      ],
+    });
+    messages.push({
+      role: "assistant",
+      content: null,
+      tool_calls: response.choices[0].message.tool_calls,
+    });
+    if (
+      !response?.choices[0]?.message?.tool_calls ||
+      response?.choices[0]?.message?.tool_calls?.length === 0
+    ) {
+      console.log(response.choices[0].message.content);
       return;
     }
+    if (!response.choices || response.choices.length === 0) {
+      throw new Error("no choices in response");
+    }
+    if (response?.choices[0]?.message?.tool_calls) {
+      const toolCalls = response.choices[0].message.tool_calls;
+      for (const call of toolCalls) {
+        if (call.function.name === "Read") {
+          const file_path = JSON.parse(call.function.arguments).file_path;
+          const result = await fs.readFile(file_path, "utf8");
+          messages.push({
+            role: "tool",
+            tool_call_id: call.id,
+            content: result,
+          });
+        }
+      }
+    }
   }
-
-  // You can use print statements as follows for debugging, they'll be visible when running tests.
-  console.error("Logs from your program will appear here!");
-
-  // TODO: Uncomment the lines below to pass the first stage
-  console.log(response.choices[0].message.content);
 }
 
 main();
