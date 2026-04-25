@@ -1,6 +1,15 @@
 import OpenAI from "openai";
 import fs from "fs/promises";
-
+interface Message {
+  role: "user" | "assistant" | "tool";
+  content: string | null;
+  tool_call_id?: string;
+  tool_calls?: {
+    id: string;
+    type: string;
+    function: { name: string; arguments: string };
+  }[];
+}
 async function main() {
   const [, , flag, prompt] = process.argv;
   const apiKey = process.env.OPENROUTER_API_KEY;
@@ -18,7 +27,7 @@ async function main() {
     apiKey: apiKey,
     baseURL: baseURL,
   });
-  const messages = [{ role: "user", content: prompt }];
+  const messages: Message[] = [{ role: "user", content: prompt }];
   while (true) {
     const response = await client.chat.completions.create({
       model: "anthropic/claude-haiku-4.5",
