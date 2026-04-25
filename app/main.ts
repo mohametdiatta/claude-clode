@@ -36,6 +36,27 @@ async function main() {
         {
           type: "function",
           function: {
+            name: "Write",
+            description: "Write content to a file",
+            parameters: {
+              type: "object",
+              required: ["file_path", "content"],
+              properties: {
+                file_path: {
+                  type: "string",
+                  description: "The path of the file to write to",
+                },
+                content: {
+                  type: "string",
+                  description: "The content to write to the file",
+                },
+              },
+            },
+          },
+        },
+        {
+          type: "function",
+          function: {
             name: "Read",
             description: "Read and return the contents of a file",
             parameters: {
@@ -77,6 +98,15 @@ async function main() {
             role: "tool",
             tool_call_id: call.id,
             content: result,
+          });
+        }
+        if (call.function.name === "Write") {
+          const { file_path, content } = JSON.parse(call.function.arguments);
+          await fs.writeFile(file_path, content, "utf8");
+          messages.push({
+            role: "tool",
+            tool_call_id: call.id,
+            content,
           });
         }
       }
