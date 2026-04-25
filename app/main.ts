@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import fs from "fs/promises";
+import { execSync } from "child_process";
 interface Message {
   role: "user" | "assistant" | "tool";
   content: string | null;
@@ -71,6 +72,23 @@ async function main() {
             },
           },
         },
+        {
+          type: "function",
+          function: {
+            name: "Bash",
+            description: "Execute a shell command",
+            parameters: {
+              type: "object",
+              required: ["command"],
+              properties: {
+                command: {
+                  type: "string",
+                  description: "The command to execute",
+                },
+              },
+            },
+          },
+        },
       ],
     });
     messages.push({
@@ -108,6 +126,24 @@ async function main() {
             tool_call_id: call.id,
             content,
           });
+        }
+        if (call.function.name === "Bash") {
+          const command = JSON.parse(call.function.arguments).command;
+          try {
+            const output = execSync(command, { encoding: "utf-8" });
+            messages.push({
+              role: "tool",
+              tool_call_id: call.id,
+              content:
+                output || "(command executed successfully with no output)",
+            });
+          } catch (execError: any) {
+            messages.push({
+              role: "tool",
+              tool_call_id: call.id,
+              content: execError.stderr || execError.message,
+            });
+          }
         }
       }
     }
