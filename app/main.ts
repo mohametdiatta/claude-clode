@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import readline from "readline/promises";
+import chalk from "chalk";
 
 import { Read } from "./tools/read";
 import { Write } from "./tools/write";
@@ -16,9 +17,13 @@ interface Message {
   }[];
 }
 
-// Helper to get user input from stdin
+// Helper to get user input from stdin with a styled prompt
 async function getUserInput(rl: readline.Interface): Promise<string> {
-  return await rl.question(">");
+  // Display a green bold prompt with a little emoji
+  const prompt = chalk.bold.green("❯ ");
+  // readline.question accepts a string prompt; we can just write to stdout manually
+  rl.output.write(prompt);
+  return await rl.question("❯ ");
 }
 
 // Process tool calls returned by the model and append tool messages
@@ -33,6 +38,7 @@ async function handleToolCalls(
       case "Read": {
         const result = await Read(args.file_path);
         messages.push({ role: "tool", tool_call_id: call.id, content: result });
+        console.log(chalk.cyanBright(`📖 Read ${args.file_path}`));
         break;
       }
       case "Write": {
@@ -42,11 +48,13 @@ async function handleToolCalls(
           tool_call_id: call.id,
           content: args.content,
         });
+        console.log(chalk.yellowBright(`✍️  Wrote to ${args.file_path}`));
         break;
       }
       case "Bash": {
         const output = Bash(args.command);
         messages.push({ role: "tool", tool_call_id: call.id, content: output });
+        console.log(chalk.magentaBright(`💻 Executed: ${args.command}`));
         break;
       }
     }
@@ -67,6 +75,9 @@ async function main() {
     input: process.stdin,
     output: process.stdout,
   });
+
+  // Display a welcoming banner
+  console.log(chalk.bold.blueBright("\n=== ZIndex Terminal Interface ===\n"));
 
   let userInput = input || (await getUserInput(rl));
 
@@ -136,17 +147,24 @@ async function main() {
       ],
     });
 
-    // Append assistant message with potential tool calls
-    messages.push({
-      role: "assistant",
-      content: null,
-      tool_calls: response.choices[0].message.tool_calls,
-    });
+    const assistantMsg = response.choices[0].message;
+    const toolCalls = assistantMsg.tool_calls;
 
-    const toolCalls = response.choices[0].message.tool_calls;
+    // Build the assistant message to store.
+    // Only set tool_calls when they are present — sending tool_calls: undefined
+    // alongside content: null produces the "invalid message content type: <nil>" error.
+    const messageToStore: Message = {
+      role: "assistant",
+      content: assistantMsg.content ?? null,
+    };
+    if (toolCalls && toolCalls.length > 0) {
+      messageToStore.tool_calls = toolCalls;
+    }
+    messages.push(messageToStore);
+
     if (!toolCalls || toolCalls.length === 0) {
-      // No tool calls – display the assistant's answer and ask for new input
-      console.log(response.choices[0].message.content);
+      // No tool calls – display the assistant's answer with a nice style
+      console.log(chalk.whiteBright(`\n🤖 ${assistantMsg.content}\n`));
       const nextInput = await getUserInput(rl);
       messages.push({ role: "user", content: nextInput });
       continue;
