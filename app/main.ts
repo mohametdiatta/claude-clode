@@ -158,7 +158,7 @@ async function main() {
       content: assistantMsg.content ?? null,
     };
     if (toolCalls && toolCalls.length > 0) {
-      messageToStore.tool_calls = toolCalls;
+      messageToStore.tool_calls = toolCalls as any;
     }
     messages.push(messageToStore);
 
