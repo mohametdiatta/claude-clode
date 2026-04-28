@@ -1,6 +1,10 @@
 import OpenAI from "openai";
-import fs from "fs/promises";
-import { execSync } from "child_process";
+import readline from "readline/promises";
+
+import { Read } from "./tools/read";
+import { Write } from "./tools/write";
+import { Bash } from "./tools/bash";
+
 interface Message {
   role: "user" | "assistant" | "tool";
   content: string | null;
@@ -11,8 +15,46 @@ interface Message {
     function: { name: string; arguments: string };
   }[];
 }
+
+// Helper to get user input from stdin
+async function getUserInput(rl: readline.Interface): Promise<string> {
+  return await rl.question(">");
+}
+
+// Process tool calls returned by the model and append tool messages
+async function handleToolCalls(
+  toolCalls: Message["tool_calls"],
+  messages: Message[],
+): Promise<void> {
+  if (!toolCalls) return;
+  for (const call of toolCalls) {
+    const args = JSON.parse(call.function.arguments);
+    switch (call.function.name) {
+      case "Read": {
+        const result = await Read(args.file_path);
+        messages.push({ role: "tool", tool_call_id: call.id, content: result });
+        break;
+      }
+      case "Write": {
+        await Write(args.file_path, args.content);
+        messages.push({
+          role: "tool",
+          tool_call_id: call.id,
+          content: args.content,
+        });
+        break;
+      }
+      case "Bash": {
+        const output = Bash(args.command);
+        messages.push({ role: "tool", tool_call_id: call.id, content: output });
+        break;
+      }
+    }
+  }
+}
+
 async function main() {
-  const [, , flag, prompt] = process.argv;
+  const [, , flag, input] = process.argv;
   const apiKey = process.env.OPENROUTER_API_KEY;
   const baseURL =
     process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1";
@@ -20,19 +62,21 @@ async function main() {
   if (!apiKey) {
     throw new Error("OPENROUTER_API_KEY is not set");
   }
-  if (flag !== "-p" || !prompt) {
-    throw new Error("error: -p flag is required");
-  }
 
-  const client = new OpenAI({
-    apiKey: apiKey,
-    baseURL: baseURL,
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
   });
-  const messages: Message[] = [{ role: "user", content: prompt }];
+
+  let userInput = input || (await getUserInput(rl));
+
+  const client = new OpenAI({ apiKey, baseURL });
+  const messages: Message[] = [{ role: "user", content: userInput }];
+
   while (true) {
     const response = await client.chat.completions.create({
-      model: "anthropic/claude-haiku-4.5",
-      messages: messages,
+      model: "gpt-oss:120b-cloud",
+      messages,
       tools: [
         {
           type: "function",
@@ -62,13 +106,13 @@ async function main() {
             description: "Read and return the contents of a file",
             parameters: {
               type: "object",
+              required: ["file_path"],
               properties: {
                 file_path: {
                   type: "string",
                   description: "The path to the file to read",
                 },
               },
-              required: ["file_path"],
             },
           },
         },
@@ -91,62 +135,25 @@ async function main() {
         },
       ],
     });
+
+    // Append assistant message with potential tool calls
     messages.push({
       role: "assistant",
       content: null,
       tool_calls: response.choices[0].message.tool_calls,
     });
-    if (
-      !response?.choices[0]?.message?.tool_calls ||
-      response?.choices[0]?.message?.tool_calls?.length === 0
-    ) {
+
+    const toolCalls = response.choices[0].message.tool_calls;
+    if (!toolCalls || toolCalls.length === 0) {
+      // No tool calls – display the assistant's answer and ask for new input
       console.log(response.choices[0].message.content);
-      return;
+      const nextInput = await getUserInput(rl);
+      messages.push({ role: "user", content: nextInput });
+      continue;
     }
-    if (!response.choices || response.choices.length === 0) {
-      throw new Error("no choices in response");
-    }
-    if (response?.choices[0]?.message?.tool_calls) {
-      const toolCalls = response.choices[0].message.tool_calls;
-      for (const call of toolCalls) {
-        if (call.function.name === "Read") {
-          const file_path = JSON.parse(call.function.arguments).file_path;
-          const result = await fs.readFile(file_path, "utf8");
-          messages.push({
-            role: "tool",
-            tool_call_id: call.id,
-            content: result,
-          });
-        }
-        if (call.function.name === "Write") {
-          const { file_path, content } = JSON.parse(call.function.arguments);
-          await fs.writeFile(file_path, content, "utf8");
-          messages.push({
-            role: "tool",
-            tool_call_id: call.id,
-            content,
-          });
-        }
-        if (call.function.name === "Bash") {
-          const command = JSON.parse(call.function.arguments).command;
-          try {
-            const output = execSync(command, { encoding: "utf-8" });
-            messages.push({
-              role: "tool",
-              tool_call_id: call.id,
-              content:
-                output || "(command executed successfully with no output)",
-            });
-          } catch (execError: any) {
-            messages.push({
-              role: "tool",
-              tool_call_id: call.id,
-              content: execError.stderr || execError.message,
-            });
-          }
-        }
-      }
-    }
+
+    // There are tool calls – handle them and feed the results back to the model
+    await handleToolCalls(toolCalls, messages);
   }
 }
 
