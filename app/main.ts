@@ -22,6 +22,29 @@ interface Message {
 // Global context object that can be loaded from a file and queried.
 let globalContext: Record<string, any> = {};
 
+// Path to the Agent.md file (in the current working directory)
+const AGENT_FILE = path.resolve(process.cwd(), "Agent.md");
+
+// Load Agent.md content into the global context (if it exists)
+async function loadAgentFile() {
+  try {
+    const content = await Read(AGENT_FILE);
+    globalContext.agent = content;
+    console.log(chalk.greenBright(`📄 Loaded Agent.md (${AGENT_FILE})`));
+  } catch (e) {
+    // Ignore missing file; will be created with `init` command.
+  }
+}
+
+// Create a default Agent.md file with a brief project description.
+async function initAgentFile() {
+  const defaultContent = `# Agent.md\n\nThis project is a TypeScript‑based interactive terminal powered by OpenAI models.\nIt supports reading, writing, executing shell commands, loading JSON context, and querying that context.\n\nFeel free to edit this file to describe your own agent's purpose, capabilities, and configuration.\n`;
+  await Write(AGENT_FILE, defaultContent);
+  console.log(chalk.yellowBright(`🗒️  Created ${AGENT_FILE}`));
+  // Load it into context immediately.
+  globalContext.agent = defaultContent;
+}
+
 // Completer for readline – provides filename suggestions after '@'
 function fileCompleter(line: string): [string[], string] {
   const atPos = line.lastIndexOf("@");
@@ -74,6 +97,11 @@ async function handleToolCalls(
           content: args.content,
         });
         console.log(chalk.yellowBright(`✍️  Wrote to ${args.file_path}`));
+        // If we just wrote Agent.md, refresh the context.
+        if (path.resolve(args.file_path) === AGENT_FILE) {
+          globalContext.agent = args.content;
+          console.log(chalk.greenBright("🔄 Updated Agent.md in context"));
+        }
         break;
       }
       case "Bash": {
@@ -152,6 +180,7 @@ async function handleToolCalls(
 
 async function main() {
   const [, , flag, input] = process.argv;
+  console.log({ flag, input });
   const apiKey = process.env.OPENROUTER_API_KEY;
   const baseURL =
     process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1";
@@ -165,11 +194,45 @@ async function main() {
     output: process.stdout,
     completer: fileCompleter,
   });
+  // Command handling before entering the chat loop
+  const handleSpecialCommand = async (cmd: string): Promise<boolean> => {
+    const lc = cmd?.trim()?.toLowerCase();
+    if (lc === "help") {
+      console.log(
+        chalk.cyanBright(
+          `\nAvailable commands:\n  help          Show this help message\n  init          Create a default Agent.md in the current directory\n  exit / quit   Quit the interactive session\n  Any other input is sent to the AI model.\n`,
+        ),
+      );
+      return true;
+    }
+    if (lc === "init") {
+      await initAgentFile();
+      return true;
+    }
+    if (lc === "exit" || lc === "quit") {
+      console.log(chalk.gray("👋 Bye!"));
+      process.exit(0);
+    }
+    return false;
+  };
 
   // Display a welcoming banner
   console.log(chalk.bold.blueBright("\n=== Zi Code Terminal Interface ===\n"));
 
-  let userInput = input || (await getUserInput(rl));
+  await loadAgentFile();
+
+  let userInput = "";
+  if (flag) {
+    await handleSpecialCommand(flag);
+    userInput = await getUserInput(rl);
+  } else {
+    userInput = input || (await getUserInput(rl));
+  }
+
+  // If the first input is a special command, handle it and ask for a new one.
+  while (await handleSpecialCommand(flag)) {
+    userInput = await getUserInput(rl);
+  }
 
   const client = new OpenAI({ apiKey, baseURL });
   const messages: Message[] = [{ role: "user", content: userInput }];
@@ -280,8 +343,6 @@ async function main() {
     const toolCalls = assistantMsg.tool_calls;
 
     // Build the assistant message to store.
-    // Only set tool_calls when they are present — sending tool_calls: undefined
-    // alongside content: null produces the "invalid message content type: <nil>" error.
     const messageToStore: Message = {
       role: "assistant",
       content: assistantMsg.content ?? null,
@@ -294,7 +355,11 @@ async function main() {
     if (!toolCalls || toolCalls.length === 0) {
       // No tool calls – display the assistant's answer with a nice style
       console.log(chalk.whiteBright(`\n🤖 ${assistantMsg.content}\n`));
-      const nextInput = await getUserInput(rl);
+      // Prompt for next input (including handling special commands)
+      let nextInput = await getUserInput(rl);
+      while (await handleSpecialCommand(nextInput)) {
+        nextInput = await getUserInput(rl);
+      }
       messages.push({ role: "user", content: nextInput });
       continue;
     }
