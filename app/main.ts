@@ -77,7 +77,7 @@ async function main() {
   });
 
   // Display a welcoming banner
-  console.log(chalk.bold.blueBright("\n=== ZIndex Terminal Interface ===\n"));
+  console.log(chalk.bold.blueBright("\n=== Zi Code Terminal Interface ===\n"));
 
   let userInput = input || (await getUserInput(rl));
 
