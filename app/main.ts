@@ -1,6 +1,8 @@
 import OpenAI from "openai";
 import readline from "readline/promises";
 import chalk from "chalk";
+import fs from "fs";
+import path from "path";
 
 import { Read } from "./tools/read";
 import { Write } from "./tools/write";
@@ -15,6 +17,29 @@ interface Message {
     type: string;
     function: { name: string; arguments: string };
   }[];
+}
+
+// Global context object that can be loaded from a file and queried.
+let globalContext: Record<string, any> = {};
+
+// Completer for readline – provides filename suggestions after '@'
+function fileCompleter(line: string): [string[], string] {
+  const atPos = line.lastIndexOf("@");
+  if (atPos === -1) {
+    return [[], line];
+  }
+  const prefix = line.slice(atPos + 1);
+  const cwd = process.cwd();
+  let entries: string[] = [];
+  try {
+    entries = fs.readdirSync(cwd);
+  } catch (e) {
+    // ignore errors, return no completions
+    return [[], line];
+  }
+  const hits = entries.filter((entry) => entry.startsWith(prefix));
+  const completions = hits.map((hit) => line.slice(0, atPos + 1) + hit);
+  return [completions, line];
 }
 
 // Helper to get user input from stdin with a styled prompt
@@ -57,6 +82,70 @@ async function handleToolCalls(
         console.log(chalk.magentaBright(`💻 Executed: ${args.command}`));
         break;
       }
+      case "LoadContext": {
+        // Load a JSON (or plain text) file into the global context.
+        try {
+          const raw = await Read(args.file_path);
+          try {
+            globalContext = JSON.parse(raw);
+            messages.push({
+              role: "tool",
+              tool_call_id: call.id,
+              content: `Context loaded from ${args.file_path}`,
+            });
+            console.log(
+              chalk.greenBright(`🗂️  Context loaded (${args.file_path})`),
+            );
+          } catch (e) {
+            // If parsing fails, store as raw string.
+            globalContext = { raw } as any;
+            messages.push({
+              role: "tool",
+              tool_call_id: call.id,
+              content: `Failed to parse JSON, stored raw content from ${args.file_path}`,
+            });
+            console.log(
+              chalk.redBright(`⚠️  Failed JSON parse for ${args.file_path}`),
+            );
+          }
+        } catch (e) {
+          const errMsg = `Error loading context: ${e}`;
+          messages.push({
+            role: "tool",
+            tool_call_id: call.id,
+            content: errMsg,
+          });
+          console.log(chalk.redBright(errMsg));
+        }
+        break;
+      }
+      case "QueryContext": {
+        // Simple dot‑notation lookup on the loaded context.
+        const pathStr: string = args.path;
+        const parts = pathStr.split(".");
+        let value: any = globalContext;
+        for (const part of parts) {
+          if (value && typeof value === "object" && part in value) {
+            value = value[part];
+          } else {
+            value = undefined;
+            break;
+          }
+        }
+        const result =
+          value === undefined
+            ? `No value found for path '${pathStr}'`
+            : JSON.stringify(value);
+        messages.push({
+          role: "tool",
+          tool_call_id: call.id,
+          content: result,
+        });
+        console.log(
+          chalk.blueBright(`🔎 Queried context path '${pathStr}' -> ${result}`),
+        );
+        break;
+      }
     }
   }
 }
@@ -74,6 +163,7 @@ async function main() {
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
+    completer: fileCompleter,
   });
 
   // Display a welcoming banner
@@ -139,6 +229,45 @@ async function main() {
                 command: {
                   type: "string",
                   description: "The command to execute",
+                },
+              },
+            },
+          },
+        },
+        // New tool to load a JSON context file into memory
+        {
+          type: "function",
+          function: {
+            name: "LoadContext",
+            description:
+              "Load a JSON file and store its content as the global context",
+            parameters: {
+              type: "object",
+              required: ["file_path"],
+              properties: {
+                file_path: {
+                  type: "string",
+                  description:
+                    "Path to the JSON (or text) file to load as context",
+                },
+              },
+            },
+          },
+        },
+        // Tool to query the previously loaded context
+        {
+          type: "function",
+          function: {
+            name: "QueryContext",
+            description:
+              "Retrieve a value from the loaded context using dot notation",
+            parameters: {
+              type: "object",
+              required: ["path"],
+              properties: {
+                path: {
+                  type: "string",
+                  description: "Dot‑separated path, e.g. 'user.name'",
                 },
               },
             },
