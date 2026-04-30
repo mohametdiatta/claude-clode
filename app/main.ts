@@ -31,7 +31,7 @@ async function loadAgentFile() {
   try {
     const content = await Read(AGENT_FILE);
     globalContext.agent = content;
-    console.log(chalk.greenBright(`📄 Loaded Agent.md (${AGENT_FILE})`));
+    console.log(chalk.greenBright(`Loaded Agent.md (${AGENT_FILE})`));
   } catch (e) {
     // Ignore missing file; will be created with `init` command.
   }
@@ -41,7 +41,7 @@ async function loadAgentFile() {
 async function initAgentFile() {
   const defaultContent = `# Agent.md\n\nThis project is a TypeScript‑based interactive terminal powered by OpenAI models.\nIt supports reading, writing, executing shell commands, loading JSON context, and querying that context.\n\nFeel free to edit this file to describe your own agent's purpose, capabilities, and configuration.\n`;
   await Write(AGENT_FILE, defaultContent);
-  console.log(chalk.yellowBright(`🗒️  Created ${AGENT_FILE}`));
+  console.log(chalk.yellowBright(`Created ${AGENT_FILE}`));
   // Load it into context immediately.
   globalContext.agent = defaultContent;
 }
@@ -87,7 +87,7 @@ async function handleToolCalls(
       case "Read": {
         const result = await Read(args.file_path);
         messages.push({ role: "tool", tool_call_id: call.id, content: result });
-        console.log(chalk.cyanBright(`📖 Read ${args.file_path}`));
+        console.log(chalk.cyanBright(`Read ${args.file_path}`));
         break;
       }
       case "Write": {
@@ -97,18 +97,18 @@ async function handleToolCalls(
           tool_call_id: call.id,
           content: args.content,
         });
-        console.log(chalk.yellowBright(`✍️  Wrote to ${args.file_path}`));
+        console.log(chalk.yellowBright(`Wrote to ${args.file_path}`));
         // If we just wrote Agent.md, refresh the context.
         if (path.resolve(args.file_path) === AGENT_FILE) {
           globalContext.agent = args.content;
-          console.log(chalk.greenBright("🔄 Updated Agent.md in context"));
+          console.log(chalk.greenBright("Updated Agent.md in context"));
         }
         break;
       }
       case "Bash": {
         const output = Bash(args.command);
         messages.push({ role: "tool", tool_call_id: call.id, content: output });
-        console.log(chalk.magentaBright(`💻 Executed: ${args.command}`));
+        console.log(chalk.magentaBright(`Executed: ${args.command}`));
         break;
       }
       case "LoadContext": {
@@ -123,7 +123,7 @@ async function handleToolCalls(
               content: `Context loaded from ${args.file_path}`,
             });
             console.log(
-              chalk.greenBright(`🗂️  Context loaded (${args.file_path})`),
+              chalk.greenBright(`Context loaded (${args.file_path})`),
             );
           } catch (e) {
             // If parsing fails, store as raw string.
@@ -134,7 +134,7 @@ async function handleToolCalls(
               content: `Failed to parse JSON, stored raw content from ${args.file_path}`,
             });
             console.log(
-              chalk.redBright(`⚠️  Failed JSON parse for ${args.file_path}`),
+              chalk.redBright(`Failed JSON parse for ${args.file_path}`),
             );
           }
         } catch (e) {
@@ -358,7 +358,7 @@ async function main() {
 
     if (!toolCalls || toolCalls.length === 0) {
       // No tool calls – display the assistant's answer with a nice style
-      console.log(chalk.whiteBright(`\n🤖 ${assistantMsg.content}\n`));
+      console.log(chalk.whiteBright(`\n ${assistantMsg.content}\n`));
       // Prompt for next input (including handling special commands)
       let nextInput = await getUserInput(rl);
       while (await handleSpecialCommand(nextInput)) {
