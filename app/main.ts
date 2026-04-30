@@ -3,6 +3,7 @@ import readline from "readline/promises";
 import chalk from "chalk";
 import fs from "fs";
 import path from "path";
+import figlet from "figlet";
 
 import { Read } from "./tools/read";
 import { Write } from "./tools/write";
@@ -217,7 +218,10 @@ async function main() {
   };
 
   // Display a welcoming banner
-  console.log(chalk.bold.blueBright("\n=== Zi Code Terminal Interface ===\n"));
+  const text = await figlet.text("\n Zi Code\n");
+
+  console.log(chalk.bold.yellowBright(text));
+  console.log(chalk.bold.yellowBright("your favorite agent tools \n"));
 
   await loadAgentFile();
 
